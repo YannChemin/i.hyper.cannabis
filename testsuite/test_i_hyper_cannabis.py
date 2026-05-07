@@ -1,6 +1,6 @@
 """
-Name:      i.hyper.sleuth test suite
-Purpose:   Unit and integration tests for the i.hyper.sleuth GRASS module.
+Name:      i.hyper.cannabis test suite
+Purpose:   Unit and integration tests for the i.hyper.cannabis GRASS module.
 
            Covers:
              - Reference spectrum parsers (inline, CSV, JSON — all layouts)
@@ -24,7 +24,7 @@ License:   GPL-2.0-or-later
 
 Run from inside a GRASS session
 --------------------------------
-    cd i.hyper.sleuth/testsuite
+    cd i.hyper.cannabis/testsuite
     python -m grass.gunittest.main
 """
 
@@ -53,7 +53,7 @@ except ImportError:
 
 # ---------------------------------------------------------------------------
 # Install a lightweight grass.script stub when GRASS is not available.
-# This allows the pure-NumPy functions in i.hyper.sleuth.py to be tested
+# This allows the pure-NumPy functions in i.hyper.cannabis.py to be tested
 # without a running GRASS session.
 # ---------------------------------------------------------------------------
 
@@ -98,8 +98,8 @@ if _sys_modules_gs is not None:
 import importlib.util as _ilu
 
 _spec = _ilu.spec_from_file_location(
-    "i_hyper_sleuth",
-    os.path.join(_MODULE_DIR, "i.hyper.sleuth.py"),
+    "i_hyper_cannabis",
+    os.path.join(_MODULE_DIR, "i.hyper.cannabis.py"),
 )
 _m = _ilu.module_from_spec(_spec)
 _spec.loader.exec_module(_m)
@@ -963,17 +963,17 @@ class TestModuleExists(unittest.TestCase):
     """Verify the module is installed and help text is accessible."""
 
     def test_module_help(self):
-        """i.hyper.sleuth --help must succeed (exit 0 with usage info)."""
+        """i.hyper.cannabis --help must succeed (exit 0 with usage info)."""
         import subprocess
         gisbase = os.environ.get("GISBASE", "")
-        script  = os.path.join(gisbase, "scripts", "i.hyper.sleuth")
+        script  = os.path.join(gisbase, "scripts", "i.hyper.cannabis")
         if not os.path.isfile(script):
-            self.skipTest("i.hyper.sleuth not installed at expected path")
+            self.skipTest("i.hyper.cannabis not installed at expected path")
         result = subprocess.run(
             [sys.executable, script, "--help"],
             capture_output=True, text=True,
         )
-        self.assertIn("i.hyper.sleuth", result.stdout + result.stderr)
+        self.assertIn("i.hyper.cannabis", result.stdout + result.stderr)
 
 
 @unittest.skipUnless(_GRASS_AVAILABLE, "GRASS GIS environment not available")

@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>i.hyper.sleuth - GRASS GIS manual</title>
+<title>i.hyper.cannabis - GRASS GIS manual</title>
 <meta charset="utf-8">
 </head>
 <body>
 
 <h2>DESCRIPTION</h2>
 
-<p><em>i.hyper.sleuth</em> finds the pixels in a hyperspectral 3D raster that
+<p><em>i.hyper.cannabis</em> finds the pixels in a hyperspectral 3D raster that
 most closely match a user-supplied reference spectrum.  For each pixel the
 module computes a similarity score in [0,&nbsp;1] (0&nbsp;=&nbsp;no match,
 1&nbsp;=&nbsp;perfect match) using one or more of <b>19 spectral-similarity
@@ -28,7 +28,7 @@ CDF rank transform, down-weights correlated methods using an inter-method
 diversity analysis, and fuses the result into a single hotspot probability
 map plus four diagnostic maps (agreement, entropy, conflict, spread).</p>
 
-<p><em>i.hyper.sleuth</em> is part of the <b>i.hyper</b> module family for
+<p><em>i.hyper.cannabis</em> is part of the <b>i.hyper</b> module family for
 hyperspectral data import, atmospheric correction, and analysis in GRASS GIS.
 Input 3D rasters are produced by <a href="i.hyper.import.html">i.hyper.import</a>
 or <a href="i.hyper.atcorr.html">i.hyper.atcorr</a>.</p>
@@ -426,7 +426,7 @@ processing.</p>
 <h3>Point mode (<tt>-p</tt>)</h3>
 
 <p>When <tt>-p</tt> is set together with <tt>coordinates=east,north</tt>,
-<em>i.hyper.sleuth</em> extracts the spectrum at the given geographic location
+<em>i.hyper.cannabis</em> extracts the spectrum at the given geographic location
 and prints a ranked similarity table for every requested method.  No raster
 output is produced.  Useful for validation, threshold selection, and
 understanding method behaviour before running a full-image analysis.</p>
@@ -496,13 +496,13 @@ pixels to calibrate thresholds for your data.</p>
 
 <h3>Find pixels matching a kaolinite spectrum (SAM)</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=kaolinite_sam \
+i.hyper.cannabis input=scene_atcorr output=kaolinite_sam \
   reference_file=kaolinite_usgs.csv method=sam
 </pre></div>
 
 <h3>Full consensus analysis with all methods and diagnostic maps</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=hotspot \
+i.hyper.cannabis input=scene_atcorr output=hotspot \
   reference_file=target.csv \
   method=consensus fusion_mode=group_product \
   output_prefix=tgt
@@ -516,7 +516,7 @@ i.hyper.sleuth input=scene_atcorr output=hotspot \
 
 <h3>Point inspection: all methods at one location</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=_ \
+i.hyper.cannabis input=scene_atcorr output=_ \
   reference="450:0.04,670:0.05,800:0.42,2200:0.18" \
   method=sam,sid,bhatt,dtw,mtf,consensus \
   coordinates="452300,4325100" -p -v
@@ -524,7 +524,7 @@ i.hyper.sleuth input=scene_atcorr output=_ \
 
 <h3>Six methods + ensemble, per-method maps, PCHIP resampling</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=best \
+i.hyper.cannabis input=scene_atcorr output=best \
   reference_file=chlorophyll_a.json \
   method=sam,cr_sam,gd1,jsd,bhatt,ensemble \
   output_prefix=chl normalize=minmax resample=pchip -c
@@ -532,14 +532,14 @@ i.hyper.sleuth input=scene_atcorr output=best \
 
 <h3>Subpixel mineral detection with CEM and MTF</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=kaolinite_sub \
+i.hyper.cannabis input=scene_atcorr output=kaolinite_sub \
   reference_file=kaolinite_usgs.csv \
   method=cem,mtf,ensemble output_prefix=kaolinite
 </pre></div>
 
 <h3>Consensus with Stouffer fusion and strict agreement threshold</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=hotspot_strict \
+i.hyper.cannabis input=scene_atcorr output=hotspot_strict \
   reference_file=chlorophyll_a.csv \
   method=consensus fusion_mode=stouffer \
   agreement_threshold=0.90 \
@@ -548,7 +548,7 @@ i.hyper.sleuth input=scene_atcorr output=hotspot_strict \
 
 <h3>Check band coverage and LUT diagnostics before processing</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=_ \
+i.hyper.cannabis input=scene_atcorr output=_ \
   reference_file=target.csv method=sam -i
 
 # Console output (example):
@@ -560,7 +560,7 @@ i.hyper.sleuth input=scene_atcorr output=_ \
 
 <h3>Restrict matching to SWIR for mineral identification</h3>
 <div class="code"><pre>
-i.hyper.sleuth input=scene_atcorr output=min_match \
+i.hyper.cannabis input=scene_atcorr output=min_match \
   reference_file=kaolinite_usgs.csv method=sam,cr_sam,gd2 \
   min_wavelength=1000 max_wavelength=2500 output_prefix=min
 </pre></div>

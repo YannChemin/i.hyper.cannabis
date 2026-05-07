@@ -1,25 +1,28 @@
 #!/usr/bin/env python
 ##############################################################################
-# MODULE:    i.hyper.sleuth
-# AUTHOR(S): Hyperspectral Spectral Target Detection
-# PURPOSE:   Find pixels in a hyperspectral 3D raster that best match a
-#            reference spectrum using a comprehensive set of signal-analysis,
-#            information-theoretic, morphological, and subpixel-detection
-#            similarity metrics.
+# MODULE:    i.hyper.cannabis
+# AUTHOR(S): Hyperspectral Cannabis Compendium Detection
+# PURPOSE:   Find pixels in a hyperspectral 3D raster that match any of the
+#            800 Cannabis sativa reference spectra from the Mendeley database,
+#            using a comprehensive set of signal-analysis, information-theoretic,
+#            morphological, and subpixel-detection similarity metrics.
+#            Outputs a single max-abundance map: the best match score across
+#            all 800 spectra for every pixel.
 # COPYRIGHT: (C) 2026 by the GRASS Development Team
 # SPDX-License-Identifier: GPL-2.0-or-later
 ##############################################################################
 
 # %module
-# % description: Spectral target detection — find pixels matching a reference spectrum in a hyperspectral 3D raster
+# % description: Cannabis sativa compendium detection — abundance map from 800-spectrum multispectral database match in a hyperspectral 3D raster
 # % keyword: imagery
 # % keyword: hyperspectral
 # % keyword: spectroscopy
+# % keyword: cannabis
 # % keyword: target detection
 # % keyword: spectral matching
 # % keyword: similarity
 # % keyword: SAM
-# % keyword: SID
+# % keyword: compendium
 # % keyword: classification
 # %end
 
@@ -33,22 +36,15 @@
 # %option G_OPT_R_OUTPUT
 # % key: output
 # % required: yes
-# % description: Output similarity raster map (0=no match, 1=perfect match)
+# % description: Output max-abundance raster map (0=no match, 1=perfect match to best cannabis spectrum)
 # % guisection: Output
 # %end
 
-# %option
-# % key: reference
-# % type: string
-# % required: no
-# % description: Reference spectrum as wavelength:reflectance pairs, comma-separated (e.g. 450:0.05,550:0.12,670:0.04,800:0.45)
-# % guisection: Reference
-# %end
-
 # %option G_OPT_F_INPUT
-# % key: reference_file
+# % key: cannabis_db
 # % required: no
-# % description: Reference spectrum file: CSV (wavelength,reflectance per line) or JSON ([[wl,r],...] or {"wavelengths":[...],"reflectances":[...]})
+# % answer: /home/yann/DBDATA/CannabisSativa/db_aver_norm.csv
+# % description: Path to Cannabis sativa compendium CSV (db_aver_norm.csv from Mendeley dataset)
 # % guisection: Reference
 # %end
 
@@ -179,10 +175,6 @@
 # % guisection: Processing
 # %end
 
-# %rules
-# % required: reference,reference_file
-# % exclusive: reference,reference_file
-# %end
 
 from __future__ import annotations
 
@@ -287,7 +279,7 @@ def _tmp(label: str) -> str:
     :return: temporary raster name guaranteed unique within this process
     :rtype: str
     """
-    name = f"tmp_ihsleuth_{os.getpid()}_{label}"
+    name = f"tmp_ihcannabis_{os.getpid()}_{label}"
     _TMP_RASTERS.append(name)
     return name
 
@@ -645,6 +637,71 @@ def parse_reference_file(path: str) -> tuple[np.ndarray, np.ndarray]:
     pairs.sort(key=lambda p: p[0])
     return (np.array([p[0] for p in pairs], dtype=np.float64),
             np.array([p[1] for p in pairs], dtype=np.float64))
+
+
+def load_cannabis_db(path: str) -> list[dict]:
+    """Load all Cannabis sativa spectra from the Mendeley compendium CSV.
+
+    The file uses semicolons as field separators and commas as decimal points
+    (European locale).  The first four columns are metadata; remaining columns
+    are reflectance values at wavelengths encoded in the column headers
+    (e.g. ``410,029`` → 410.029 nm).
+
+    :param str path: path to ``db_aver_norm.csv``
+    :return: list of dicts with keys ``wavelengths`` (1-D float64 array),
+             ``reflectances`` (1-D float64 array), ``variety`` (str),
+             ``date`` (str), ``plant_id`` (str), ``leaf_location`` (str)
+    :rtype: list[dict]
+    :raises SystemExit: via ``gs.fatal`` if the file cannot be parsed
+    """
+    if not os.path.isfile(path):
+        gs.fatal(f"Cannabis database not found: {path}")
+
+    spectra = []
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        reader = csv.reader(f, delimiter=';')
+        headers = next(reader)
+
+    # Parse wavelength column names (European decimal comma → dot)
+    META_COLS = 4
+    wl_headers = headers[META_COLS:]
+    wavelengths = np.array(
+        [float(h.replace(',', '.')) for h in wl_headers], dtype=np.float64
+    )
+
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        reader = csv.reader(f, delimiter=';')
+        next(reader)  # skip header
+        for row in reader:
+            if len(row) < META_COLS + len(wavelengths):
+                continue
+            date_val = row[0].strip()
+            variety  = row[1].strip()
+            plant_id = row[2].strip()
+            leaf_loc = row[3].strip()
+            try:
+                refs = np.array(
+                    [float(v.replace(',', '.')) for v in row[META_COLS:]],
+                    dtype=np.float64,
+                )
+            except ValueError:
+                continue
+            spectra.append({
+                'wavelengths':  wavelengths,
+                'reflectances': refs,
+                'variety':   variety,
+                'date':      date_val,
+                'plant_id':  plant_id,
+                'leaf_location': leaf_loc,
+            })
+
+    if not spectra:
+        gs.fatal(f"No spectra parsed from {path}")
+
+    gs.message(f"Loaded {len(spectra)} Cannabis sativa spectra "
+               f"({wavelengths[0]:.1f}–{wavelengths[-1]:.1f} nm)")
+    return spectra
+
 
 # ---------------------------------------------------------------------------
 # Spectrum resampling
@@ -2544,7 +2601,7 @@ def point_analysis(spec_pixel: np.ndarray, ref: np.ndarray,
 
 
 def set_similarity_colors(output_name: str) -> None:
-    """Apply the standard i.hyper.sleuth blue–yellow–red colour ramp.
+    """Apply the standard i.hyper.cannabis blue–yellow–red colour ramp.
 
     0 (no match) → deep blue → cyan → yellow → orange → 1 (perfect match) → red.
     Applied via ``r.colors`` with explicit RGB control points.
@@ -2581,7 +2638,7 @@ def set_raster_metadata(output_name: str, raster3d: str,
     title = f"Spectral similarity ({METHOD_LABELS.get(method, method)})"
     description = (f"Similarity to reference spectrum [{ref_desc}] "
                    f"using {METHOD_LABELS.get(method, method)} "
-                   f"from i.hyper.sleuth on {raster3d}. Range: 0=no match, 1=perfect match.")
+                   f"from i.hyper.cannabis on {raster3d}. Range: 0=no match, 1=perfect match.")
     try:
         gs.run_command('r.support', map=output_name,
                        title=title, description=description, quiet=True)
@@ -2622,7 +2679,7 @@ def print_info(bands: list[dict], ref_wls: np.ndarray, ref_vals: np.ndarray,
     wls = [b['wavelength'] for b in bands]
 
     gs.message(sep)
-    gs.message("i.hyper.sleuth — Spectral Target Detection")
+    gs.message("i.hyper.cannabis — Spectral Target Detection")
     gs.message(sep)
     gs.message(f"Sensor  : {len(bands)} bands, "
                f"{min(wls):.1f} – {max(wls):.1f} nm")
@@ -2660,15 +2717,14 @@ def print_info(bands: list[dict], ref_wls: np.ndarray, ref_vals: np.ndarray,
 def main(options: dict, flags: dict) -> int:
     """Entry point called by the GRASS parser after ``gs.parser()`` returns.
 
-    Orchestrates the full processing pipeline:
+    Orchestrates the Cannabis sativa compendium detection pipeline:
 
-    1. Parse and validate the reference spectrum (inline or file).
+    1. Load all 800 Cannabis sativa spectra from the Mendeley database CSV.
     2. Read band metadata from the 3D raster.
-    3. Build the :class:`WavelengthLUT` and check wavelength overlap.
-    4. Resample the reference to the sensor grid.
-    5. Apply preprocessing (normalization, continuum removal, simplex).
-    6. Point mode path: extract pixel spectrum, print scores, exit.
-    7. Full-image path: load cube, run requested methods, write outputs.
+    3. Load the hyperspectral cube.
+    4. For each of the 800 spectra: resample, preprocess, score every pixel.
+    5. Max-pool across all spectra → single abundance map (best match wins).
+    6. Write output.
 
     :param dict options: GRASS option dict from ``gs.parser()``
     :param dict flags: GRASS flag dict from ``gs.parser()``
@@ -2678,8 +2734,8 @@ def main(options: dict, flags: dict) -> int:
     """
     raster3d    = options['input']
     output      = options['output']
-    ref_inline  = options.get('reference') or ''
-    ref_file    = options.get('reference_file') or ''
+    cannabis_db = options.get('cannabis_db') or \
+                  '/home/yann/DBDATA/CannabisSativa/db_aver_norm.csv'
     methods_str = options.get('method', 'sam')
     out_prefix  = options.get('output_prefix') or ''
     resample_m  = options.get('resample', 'linear')
@@ -2708,8 +2764,6 @@ def main(options: dict, flags: dict) -> int:
                  f"Valid: {', '.join(FUSION_MODES)}")
 
     do_consensus = 'consensus' in methods
-    # consensus is mutually exclusive with ensemble in the same run
-    # (consensus subsumes ensemble and much more)
     if do_consensus and 'ensemble' in methods:
         gs.warning("Both 'consensus' and 'ensemble' requested; "
                    "'ensemble' will be skipped — consensus subsumes it.")
@@ -2721,20 +2775,10 @@ def main(options: dict, flags: dict) -> int:
         gs.fatal("ensemble requires at least one additional method")
 
     # ------------------------------------------------------------------
-    # Step 1: Reference spectrum
+    # Step 1: Load Cannabis sativa compendium (800 spectra)
     # ------------------------------------------------------------------
-    if ref_inline:
-        ref_wls, ref_vals = parse_reference_inline(ref_inline)
-        ref_desc = f"inline ({len(ref_wls)} points)"
-    else:
-        ref_wls, ref_vals = parse_reference_file(ref_file)
-        ref_desc = os.path.basename(ref_file)
-
-    if np.any(ref_vals < 0):
-        gs.warning("Reference contains negative reflectance values — check units")
-    if np.any(ref_vals > 2):
-        gs.warning("Reference contains reflectance > 2 — values may be in % not [0,1]; "
-                   "ensure pixel data and reference are on the same scale")
+    db_spectra = load_cannabis_db(cannabis_db)
+    n_spectra = len(db_spectra)
 
     # ------------------------------------------------------------------
     # Step 2: Band metadata
@@ -2744,122 +2788,21 @@ def main(options: dict, flags: dict) -> int:
     wls = np.array([b['wavelength'] for b in bands], dtype=np.float64)
     gs.message(f"Found {len(bands)} usable bands: {wls[0]:.1f} – {wls[-1]:.1f} nm")
 
-    # ------------------------------------------------------------------
-    # Step 3: Build WavelengthLUT (ref → sensor) — computed once, reused
-    #         everywhere: resampling, overlap restriction, diagnostics.
-    # ------------------------------------------------------------------
-    lut = WavelengthLUT(ref_wls, wls, fill='edge')
-
-    if not lut.has_overlap:
-        gs.fatal(
-            f"No wavelength overlap between reference "
-            f"({ref_wls[0]:.1f}–{ref_wls[-1]:.1f} nm) and sensor "
-            f"({wls[0]:.1f}–{wls[-1]:.1f} nm).  Check units or wavelength range."
-        )
-
-    # Diagnostic: sensor bands outside reference range get edge-fill values.
-    # Those bands contribute noise to the similarity score; advise restriction.
-    n_oor = int((~lut.valid_dst).sum())
-    if n_oor:
-        gs.warning(
-            f"{n_oor} of {len(bands)} sensor bands fall outside the reference "
-            f"wavelength range [{ref_wls[0]:.1f}–{ref_wls[-1]:.1f} nm] and "
-            "will receive edge-fill reflectance values.  "
-            f"Use min_wavelength={lut.overlap_lo:.0f} max_wavelength="
-            f"{lut.overlap_hi:.0f} to restrict matching to the overlap region "
-            "and avoid similarity bias."
-        )
-    n_hidden = int((~lut.valid_src).sum())
-    if n_hidden:
-        gs.warning(
-            f"{n_hidden} reference point(s) lie outside the sensor range "
-            f"[{wls[0]:.1f}–{wls[-1]:.1f} nm] and cannot be matched."
-        )
-    if flag_v:
-        gs.verbose(f"WavelengthLUT: {lut.coverage_report()}")
-        gs.verbose(f"  Precomputed {len(lut.left_idx)} index pairs "
-                   f"(left_idx, right_idx, alpha) for O(n) apply()")
-
-    # ------------------------------------------------------------------
-    # Step 4: Resample reference to sensor wavelengths
-    #         Uses LUT.apply() — O(n_sensor), no binary search.
-    # ------------------------------------------------------------------
-    ref_resampled = resample_reference(ref_wls, ref_vals, wls,
-                                       method=resample_m, lut=lut)
-
     if flag_i:
-        print_info(bands, ref_wls, ref_vals, ref_resampled, methods, lut=lut)
+        # Info mode: summarise DB coverage vs sensor range then exit
+        db_wls = db_spectra[0]['wavelengths']
+        gs.message(f"Cannabis DB: {n_spectra} spectra, "
+                   f"{db_wls[0]:.1f}–{db_wls[-1]:.1f} nm")
+        varieties = sorted({s['variety'] for s in db_spectra})
+        gs.message(f"Varieties: {', '.join(varieties)}")
         return 0
 
     # ------------------------------------------------------------------
-    # Step 5: Apply preprocessing to reference
-    # ------------------------------------------------------------------
-    ref_proc = ref_resampled.copy()
-    if flag_z:
-        ref_proc = to_prob_simplex(ref_proc)
-    if normalize_m != 'none':
-        ref_proc = normalize_spectrum(ref_proc, normalize_m)
-    if flag_c and 'cr_sam' not in methods and 'cr_ed' not in methods:
-        # Global -c flag: pre-remove continuum from reference
-        ref_proc = continuum_remove(ref_proc, wls)
-
-    # ------------------------------------------------------------------
-    # Step 5: Point mode
-    # ------------------------------------------------------------------
-    if flag_p:
-        east, north = (float(v) for v in coords_str.split(','))
-        gs.message(f"Point mode: extracting spectrum at E={east}, N={north}")
-        spec_pixel = read_pixel_spectrum(bands, raster3d, east, north)
-        if np.all(np.isnan(spec_pixel)):
-            gs.fatal("All band values are null at the given coordinates")
-
-        if flag_z:
-            spec_pixel = to_prob_simplex(spec_pixel)
-        if normalize_m != 'none':
-            spec_pixel = normalize_spectrum(spec_pixel, normalize_m)
-
-        scores = point_analysis(spec_pixel, ref_proc, wls, methods,
-                                shift_win, flag_c, flag_z=False)
-
-        sep = "-" * 64
-        gs.message(sep)
-        gs.message(f"i.hyper.sleuth — Point analysis  E={east}  N={north}")
-        gs.message(sep)
-        gs.message(f"  {'Method':<12}  {'Score':>6}  {'Label'}")
-        gs.message(sep)
-        for mth in methods:
-            if mth == '_weights':
-                continue
-            score = scores.get(mth, float('nan'))
-            marker = ' ◀' if mth == 'consensus' else ''
-            gs.message(f"  {mth:<12}  {score:6.4f}  "
-                       f"{METHOD_LABELS.get(mth,'')}{marker}")
-        # Print diversity weights if consensus was requested
-        pt_weights = scores.get('_weights')
-        if pt_weights:
-            gs.message(sep)
-            gs.message("  Diversity weights used in consensus:")
-            for nm, wt in sorted(pt_weights.items(), key=lambda x: -x[1]):
-                gs.message(f"    {nm:<12}  w={wt:.3f}")
-        gs.message(sep)
-
-        if flag_v:
-            gs.message("Pixel spectrum (resampled to sensor bands):")
-            for b, v in zip(bands, spec_pixel):
-                gs.verbose(f"  {b['wavelength']:8.2f} nm : {v:.6f}")
-            gs.message("Reference spectrum (resampled):")
-            for wl, v in zip(wls, ref_proc):
-                gs.verbose(f"  {wl:8.2f} nm : {v:.6f}")
-
-        return 0
-
-    # ------------------------------------------------------------------
-    # Step 6: Load full cube
+    # Step 3: Load full cube (done once; shared across all 800 spectra)
     # ------------------------------------------------------------------
     gs.message("Loading hyperspectral cube into memory...")
     cube = load_cube(bands, raster3d, verbose=flag_v)
 
-    # Apply preprocessing to cube
     if flag_z:
         cube = to_prob_simplex_cube(cube)
     if normalize_m != 'none':
@@ -2870,169 +2813,162 @@ def main(options: dict, flags: dict) -> int:
 
     cube = cube.astype(np.float64)
 
-    # ------------------------------------------------------------------
-    # Step 7a: Consensus path (runs all base methods, fuses internally)
-    # ------------------------------------------------------------------
-    consensus_result: dict = {}
+    # Allocate the max-abundance accumulator (per-pixel maximum over all spectra)
+    abundance_map = np.full(cube.shape[:2], -np.inf, dtype=np.float64)
+    # Track which spectrum index achieved the best match per pixel
+    best_idx_map  = np.zeros(cube.shape[:2], dtype=np.int32)
 
-    if do_consensus:
-        gs.message(f"Running full consensus analysis "
-                   f"(fusion_mode={fusion_mode}, "
-                   f"agreement_threshold={agr_thresh})...")
-
-        # Any explicitly requested non-consensus, non-ensemble methods
-        # are pre-computed and passed in so they are not run twice.
-        seed_maps: dict[str, np.ndarray] = {}
-        seed_methods = [m for m in methods
-                        if m not in ('consensus', 'ensemble')]
-        for idx, mth in enumerate(seed_methods):
-            gs.message(f"  (seed) [{idx+1}/{len(seed_methods)}] "
-                       f"{METHOD_LABELS.get(mth, mth)}")
-            seed_maps[mth] = compute_method(mth, cube, ref_proc, wls,
-                                            shift_win, seed_maps)
-
-        consensus_result = run_consensus_analysis(
-            cube, ref_proc, wls, shift_win,
-            existing_score_maps=seed_maps,
-            fusion_mode=fusion_mode,
-            agreement_threshold=agr_thresh,
-            skip_slow=False,
-            verbose=flag_v,
-        )
-
-        primary_method = 'consensus'
-        primary_map    = consensus_result['probability']
-        score_maps     = consensus_result['score_maps']
-
-    # ------------------------------------------------------------------
-    # Step 7b: Normal path (explicit method list, no consensus)
-    # ------------------------------------------------------------------
+    # Point-mode: extract pixel spectrum once
+    if flag_p:
+        east, north = (float(v) for v in coords_str.split(','))
+        gs.message(f"Point mode: extracting spectrum at E={east}, N={north}")
+        spec_pixel = read_pixel_spectrum(bands, raster3d, east, north)
+        if np.all(np.isnan(spec_pixel)):
+            gs.fatal("All band values are null at the given coordinates")
+        if flag_z:
+            spec_pixel = to_prob_simplex(spec_pixel)
+        if normalize_m != 'none':
+            spec_pixel = normalize_spectrum(spec_pixel, normalize_m)
     else:
-        gs.message(f"Computing {len(methods)} method(s): {', '.join(methods)}")
-        score_maps: dict[str, np.ndarray] = {}
+        spec_pixel = None
 
-        non_ensemble = [m for m in methods if m != 'ensemble']
-        do_ensemble  = 'ensemble' in methods
+    # ------------------------------------------------------------------
+    # Step 4: Compendium loop — score every pixel against every spectrum
+    # ------------------------------------------------------------------
+    gs.message(f"Running compendium search: {n_spectra} spectra × "
+               f"{len(methods)} method(s)...")
 
-        for idx, mth in enumerate(non_ensemble):
-            gs.message(f"  [{idx+1}/{len(non_ensemble)}] "
-                       f"{METHOD_LABELS.get(mth, mth)} ({mth})")
-            gs.percent(idx, len(non_ensemble), 2)
-            score_maps[mth] = compute_method(mth, cube, ref_proc, wls,
-                                             shift_win, score_maps)
+    primary_method = ('ensemble' if 'ensemble' in methods
+                      else ('consensus' if do_consensus else methods[0]))
+
+    for sp_idx, spectrum in enumerate(db_spectra):
+        ref_wls  = spectrum['wavelengths']
+        ref_vals = spectrum['reflectances']
+        sp_label = (f"{spectrum['variety']} P{spectrum['plant_id']} "
+                    f"L{spectrum['leaf_location']} {spectrum['date']}")
+
+        gs.percent(sp_idx, n_spectra, 5)
+
+        # Build LUT for this spectrum → sensor grid
+        lut = WavelengthLUT(ref_wls, wls, fill='edge')
+        if not lut.has_overlap:
             if flag_v:
-                s = score_maps[mth]
-                valid = s[np.isfinite(s)]
-                if valid.size > 0:
-                    gs.verbose(f"    range [{valid.min():.4f}, {valid.max():.4f}] "
-                               f"mean={valid.mean():.4f}")
+                gs.verbose(f"  Spectrum {sp_idx}: no overlap — skipped")
+            continue
 
-        if do_ensemble:
-            gs.message(f"  Ensemble fusion from {len(score_maps)} methods...")
-            score_maps['ensemble'] = match_ensemble(score_maps)
+        # Resample and preprocess reference
+        ref_resampled = resample_reference(ref_wls, ref_vals, wls,
+                                           method=resample_m, lut=lut)
+        ref_proc = ref_resampled.copy()
+        if flag_z:
+            ref_proc = to_prob_simplex(ref_proc)
+        if normalize_m != 'none':
+            ref_proc = normalize_spectrum(ref_proc, normalize_m)
+        if flag_c and 'cr_sam' not in methods and 'cr_ed' not in methods:
+            ref_proc = continuum_remove(ref_proc, wls)
 
-        gs.percent(len(non_ensemble), len(non_ensemble), 2)
+        # ------ Point mode: print per-spectrum score table ------
+        if flag_p:
+            scores = point_analysis(spec_pixel, ref_proc, wls, methods,
+                                    shift_win, flag_c, flag_z=False)
+            score_val = scores.get(primary_method, float('nan'))
+            gs.message(f"  [{sp_idx+1:4d}/{n_spectra}] {sp_label:40s}  "
+                       f"{primary_method}={score_val:.4f}")
+            continue
 
-        primary_method = 'ensemble' if do_ensemble else non_ensemble[0]
-        primary_map    = score_maps[primary_method]
+        # ------ Full-image scoring ------
+        if do_consensus:
+            consensus_result = run_consensus_analysis(
+                cube, ref_proc, wls, shift_win,
+                existing_score_maps={},
+                fusion_mode=fusion_mode,
+                agreement_threshold=agr_thresh,
+                skip_slow=False,
+                verbose=False,
+            )
+            sp_map = consensus_result['probability']
+        else:
+            score_maps: dict[str, np.ndarray] = {}
+            non_ensemble = [m for m in methods if m != 'ensemble']
+            do_ensemble  = 'ensemble' in methods
+            for mth in non_ensemble:
+                score_maps[mth] = compute_method(mth, cube, ref_proc, wls,
+                                                 shift_win, score_maps)
+            if do_ensemble:
+                score_maps['ensemble'] = match_ensemble(score_maps)
+            sp_map = score_maps['ensemble' if do_ensemble else non_ensemble[0]]
+
+        # Max-pool: keep best score per pixel
+        better = sp_map > abundance_map
+        abundance_map = np.where(better, sp_map, abundance_map)
+        best_idx_map  = np.where(better, sp_idx, best_idx_map)
+
+        if flag_v:
+            valid = sp_map[np.isfinite(sp_map)]
+            if valid.size > 0:
+                gs.verbose(f"  [{sp_idx+1:4d}] {sp_label}  "
+                           f"max={valid.max():.4f} mean={valid.mean():.4f}")
+
+    gs.percent(n_spectra, n_spectra, 5)
+
+    if flag_p:
+        # Point mode finished — no map to write
+        sep = "-" * 64
+        gs.message(sep)
+        gs.message(f"i.hyper.cannabis — Point analysis  E={east}  N={north}")
+        gs.message(f"  (scores shown above per spectrum, method={primary_method})")
+        gs.message(sep)
+        return 0
+
+    # Replace -inf (never updated = no-overlap pixels) with NaN
+    abundance_map = np.where(np.isfinite(abundance_map), abundance_map, np.nan)
 
     # ------------------------------------------------------------------
-    # Step 8: Write primary output
+    # Step 5: Write output abundance map
     # ------------------------------------------------------------------
-    gs.message(f"Writing primary output: {output} (method: {primary_method})")
-    write_raster(primary_map, output)
+    ref_desc = f"Cannabis sativa compendium ({n_spectra} spectra)"
+    gs.message(f"Writing max-abundance map: {output}")
+    write_raster(abundance_map, output)
     set_similarity_colors(output)
     set_raster_metadata(output, raster3d, primary_method, ref_desc)
 
-    # ------------------------------------------------------------------
-    # Step 9: Per-method prefix outputs
-    # ------------------------------------------------------------------
+    # Optionally write best-spectrum index map
     if out_prefix:
-        gs.message(f"Writing per-method maps with prefix: {out_prefix}")
-
-        # Base score maps
-        for mth, smap in score_maps.items():
-            map_name = f"{out_prefix}_{mth}"
-            if map_name == output:
-                continue
-            gs.message(f"  {map_name}")
-            write_raster(smap, map_name)
-            set_similarity_colors(map_name)
-            set_raster_metadata(map_name, raster3d, mth, ref_desc)
-
-        # Consensus diagnostic maps (agreement, entropy, conflict, spread)
-        if do_consensus:
-            diag_labels = {
-                'agreement': 'Fraction of methods voting hotspot',
-                'entropy':   'Method agreement entropy (0=agree, 1=conflict)',
-                'conflict':  'Ambiguous hotspot mask (high prob + high entropy)',
-                'spread':    'Std dev of calibrated scores per pixel',
-            }
-            for key, label in diag_labels.items():
-                arr = consensus_result.get(key)
-                if arr is None:
-                    continue
-                map_name = f"{out_prefix}_consensus_{key}"
-                gs.message(f"  {map_name}  [{label}]")
-                write_raster(arr.astype(np.float64), map_name)
-                # Tailored color tables
-                if key == 'agreement':
-                    set_similarity_colors(map_name)
-                elif key == 'entropy':
-                    # Reversed: 0=green (good agreement), 1=red (conflict)
-                    rules = "0.0 0:200:0\n0.5 255:220:0\n1.0 200:0:0\n"
-                    gs.write_command('r.colors', map=map_name,
-                                     rules='-', stdin=rules, quiet=True)
-                elif key == 'conflict':
-                    gs.run_command('r.colors', map=map_name,
-                                   color='grey', quiet=True)
-                elif key == 'spread':
-                    gs.run_command('r.colors', map=map_name,
-                                   color='plasma', quiet=True)
-                try:
-                    gs.run_command('r.support', map=map_name,
-                                   title=f"Consensus {key}",
-                                   description=label, quiet=True)
-                except Exception:
-                    pass
-
-            # Per-method calibrated probability maps
-            calibrated = consensus_result.get('calibrated', {})
-            for mth, cmap in calibrated.items():
-                map_name = f"{out_prefix}_cal_{mth}"
-                gs.message(f"  {map_name}  [calibrated p for {mth}]")
-                write_raster(cmap.astype(np.float64), map_name)
-                set_similarity_colors(map_name)
+        idx_map_name = f"{out_prefix}_best_spectrum_idx"
+        gs.message(f"Writing best-spectrum index map: {idx_map_name}")
+        write_raster(best_idx_map.astype(np.float64), idx_map_name)
+        try:
+            gs.run_command('r.colors', map=idx_map_name,
+                           color='random', quiet=True)
+            gs.run_command('r.support', map=idx_map_name,
+                           title='Best-matching Cannabis sativa spectrum index',
+                           description=f'Index 0–{n_spectra-1} into {cannabis_db}',
+                           quiet=True)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
-    s = primary_map[np.isfinite(primary_map)]
+    s = abundance_map[np.isfinite(abundance_map)]
     sep = "=" * 60
     gs.message(" ")
     gs.message(sep)
-    gs.message("i.hyper.sleuth completed successfully.")
-    gs.message(f"  Primary method : {primary_method}")
-    gs.message(f"  Output map     : {output}")
+    gs.message("i.hyper.cannabis completed successfully.")
+    gs.message(f"  Spectra searched : {n_spectra}")
+    gs.message(f"  Method           : {primary_method}")
+    gs.message(f"  Output map       : {output}")
     if s.size > 0:
-        gs.message(f"  Score range    : [{s.min():.4f}, {s.max():.4f}]")
-        gs.message(f"  Score mean     : {s.mean():.4f}")
+        gs.message(f"  Score range      : [{s.min():.4f}, {s.max():.4f}]")
+        gs.message(f"  Score mean       : {s.mean():.4f}")
         for thr in (0.9, 0.8, 0.7, 0.5):
             n_above = int((s >= thr).sum())
             pct = 100.0 * n_above / s.size
             if n_above > 0:
-                gs.message(f"  Pixels ≥ {thr:.1f}   : {n_above} ({pct:.2f}%)")
+                gs.message(f"  Pixels ≥ {thr:.1f}     : {n_above} ({pct:.2f}%)")
                 break
-
-    if do_consensus:
-        w = consensus_result['weights']
-        gs.message("  Diversity weights:")
-        for nm, wt in sorted(w.items(), key=lambda x: -x[1])[:6]:
-            gs.message(f"    {nm:<12s} {wt:.3f}")
-        if len(w) > 6:
-            gs.message(f"    ... ({len(w)} methods total)")
     if out_prefix:
-        gs.message(f"  Per-method maps: {out_prefix}_{{method}}")
+        gs.message(f"  Best-index map   : {out_prefix}_best_spectrum_idx")
     gs.message(sep)
 
     return 0

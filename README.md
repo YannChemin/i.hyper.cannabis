@@ -1,4 +1,4 @@
-# i.hyper.sleuth
+# i.hyper.cannabis
 
 **GRASS GIS module — Spectral target detection and multi-method consensus
 hotspot mapping from hyperspectral imagery**
@@ -10,7 +10,7 @@ data processing in GRASS GIS.
 
 ## Overview
 
-`i.hyper.sleuth` finds the pixels in a hyperspectral 3D raster that most
+`i.hyper.cannabis` finds the pixels in a hyperspectral 3D raster that most
 closely match a user-supplied reference spectrum.  For each pixel a
 similarity score in **[0, 1]** (0 = no match, 1 = perfect match) is computed
 using one or more of **19 similarity methods** drawn from remote sensing,
@@ -265,23 +265,23 @@ All output maps share a blue → yellow → red colour ramp (0 = blue, 1 = red).
 
 ```bash
 # SAM match against a kaolinite CSV library entry
-i.hyper.sleuth input=scene_atcorr output=kaolinite_sam \
+i.hyper.cannabis input=scene_atcorr output=kaolinite_sam \
   reference_file=kaolinite_usgs.csv method=sam
 
 # Full consensus analysis with all methods + diagnostic maps
-i.hyper.sleuth input=scene_atcorr output=hotspot \
+i.hyper.cannabis input=scene_atcorr output=hotspot \
   reference_file=target.csv \
   method=consensus fusion_mode=group_product \
   output_prefix=tgt
 
 # Point inspection: all methods at one pixel
-i.hyper.sleuth input=scene_atcorr output=_ \
+i.hyper.cannabis input=scene_atcorr output=_ \
   reference="450:0.04,670:0.05,800:0.42,2200:0.18" \
   method=sam,sid,bhatt,dtw,mtf,consensus \
   coordinates="452300,4325100" -p -v
 
 # Six methods + ensemble, per-method maps
-i.hyper.sleuth input=scene_atcorr output=best \
+i.hyper.cannabis input=scene_atcorr output=best \
   reference_file=chlorophyll_a.json \
   method=sam,cr_sam,gd1,jsd,bhatt,ensemble \
   output_prefix=chl normalize=minmax -c

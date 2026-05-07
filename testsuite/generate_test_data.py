@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate synthetic hyperspectral test data for i.hyper.sleuth.
+Generate synthetic hyperspectral test data for i.hyper.cannabis.
 
 Author:    Yann Chemin <yann.chemin@gmail.com>
 Copyright: (C) 2026 by Yann Chemin and the GRASS Development Team
@@ -164,7 +164,7 @@ def setup_test_region(rows=ROWS, cols=COLS):
 def inject_band_metadata(raster3d_name, band_wavelengths=None, fwhm=FWHM_NM):
     """Write wavelength metadata into each 2D band-slice raster.
 
-    i.hyper.sleuth reads wavelength via ``r.info -h`` on ``{map}#{band}``.
+    i.hyper.cannabis reads wavelength via ``r.info -h`` on ``{map}#{band}``.
 
     :param str raster3d_name: base name of the 3D raster (bands must exist as
                                ``{raster3d_name}#{1..N}``)
@@ -264,7 +264,7 @@ def cleanup_scene(name):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate synthetic i.hyper.sleuth test scenes."
+        description="Generate synthetic i.hyper.cannabis test scenes."
     )
     parser.add_argument(
         "--scene", default="all",
