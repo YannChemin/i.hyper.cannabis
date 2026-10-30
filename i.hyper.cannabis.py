@@ -1110,8 +1110,7 @@ def load_cube(bands: list[dict], raster3d: str,
             map_name = extract_band(raster3d, b['band'])
             b['map_name'] = map_name
 
-        arr = garray.array()
-        arr.read(map_name)
+        arr = garray.array(mapname=map_name)
         band_data = np.asarray(arr, dtype=np.float32)
 
         if cube is None:
@@ -1453,17 +1452,25 @@ EPS = 1e-12
 
 
 def _safe_cube(cube: np.ndarray) -> np.ndarray:
-    """Replace NaN and Inf values in a cube with 0.
+    """Replace NaN and Inf values in a cube with 0, in place.
 
     Called at the entry of every ``match_*`` function to avoid propagating
-    non-finite values into similarity scores.
+    non-finite values into similarity scores. Mutates *cube* directly and
+    returns it unchanged in dtype: a naive ``np.where(mask, cube, 0.0)``
+    both allocates a full extra copy of the cube *and* silently upcasts
+    float32 cubes to float64 (Python float literal promotion), which for a
+    multi-GB hyperspectral cube can double or triple peak memory. Since the
+    cube is idempotently sanitized once, subsequent calls across methods
+    are cheap no-ops.
 
-    :param cube: input hyperspectral cube (not modified)
+    :param cube: input hyperspectral cube (mutated in place)
     :type cube: np.ndarray
-    :return: cube with all non-finite values replaced by 0.0
+    :return: the same array, with all non-finite values replaced by 0.0
     :rtype: np.ndarray, same shape and dtype as *cube*
     """
-    return np.where(np.isfinite(cube), cube, 0.0)
+    if not np.isfinite(cube).all():
+        np.nan_to_num(cube, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return cube
 
 
 # ── 1. SAM — Spectral Angle Mapper ────────────────────────────────────────
