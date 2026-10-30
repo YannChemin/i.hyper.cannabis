@@ -1124,6 +1124,62 @@ def load_cube(bands: list[dict], raster3d: str,
     return cube
 
 
+def _spectrum_via_r3what(raster3d: str, east: float,
+                         north: float) -> list[float] | None:
+    """Read one pixel's whole depth column with a single r3.what call.
+
+    Returns one value per depth of the cube, indexed by depth, so the caller
+    reads band *n* as ``values[n - 1]``; ``None`` if r3.what is unavailable or
+    returns an unexpected number of values, so the caller can fall back to
+    per-band slicing.
+
+    r3.what reads only the voxels asked for, so a whole spectrum comes back in
+    well under a second. Extracting one 2D raster per band to query a single
+    pixel costs minutes on a large cube, because every band pays for the whole
+    scene.
+
+    r3.what reports one value per depth of the computational region, not of
+    the map, so the region's depth window is aligned to the cube's own stack
+    first. That happens inside a temporary region, which leaves the caller's
+    region untouched.
+    """
+    from grass.exceptions import CalledModuleError
+
+    try:
+        depths = int(gs.raster3d_info(raster3d)['depths'])
+    except (CalledModuleError, KeyError, ValueError):
+        return None
+    try:
+        gs.use_temp_region()
+    except (CalledModuleError, OSError):
+        return None
+    try:
+        gs.run_command('g.region', raster_3d=raster3d, quiet=True)
+        out = gs.read_command('r3.what', input=raster3d,
+                              coordinates=f"{east},{north}",
+                              null_value='nan', quiet=True)
+    except CalledModuleError:
+        return None
+    finally:
+        gs.del_temp_region()
+    line = next((ln for ln in out.splitlines() if ln.strip()), '')
+    # east|north|depth 1|depth 2|... in the cube's own depth order.
+    parts = line.split('|')[2:]
+    if len(parts) != depths:
+        gs.verbose(
+            f"r3.what returned {len(parts)} values for a {depths}-depth cube; "
+            "falling back to 2D slice extraction"
+        )
+        return None
+    values = []
+    for v in parts:
+        try:
+            values.append(float(v))
+        except ValueError:
+            values.append(float('nan'))
+    return values
+
+
 def read_pixel_spectrum(bands: list[dict], raster3d: str,
                         east: float, north: float) -> np.ndarray:
     """Extract the reflectance spectrum at one geographic coordinate.
@@ -1139,6 +1195,12 @@ def read_pixel_spectrum(bands: list[dict], raster3d: str,
     :return: reflectance values, one per band; NaN where ``r.what`` returns NULL
     :rtype: np.ndarray, shape (n_bands,) float64
     """
+    column = _spectrum_via_r3what(raster3d, east, north)
+    if column is not None:
+        return np.array([column[b['band'] - 1] for b in bands],
+                        dtype=np.float64)
+
+    gs.verbose("Falling back to per-band 2D slice extraction…")
     coords = f"{east},{north}"
     spec = []
     for b in bands:
